@@ -1,2 +1,2 @@
 # Prevmatec-webapp
-A web app to aid with installations
+A web app to aid with installations.
