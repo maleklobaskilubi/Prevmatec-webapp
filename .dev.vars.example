@@ -1,0 +1,10 @@
+# Cloudflare Pages local dev secrets (equivalent to .env)
+# Copy this to .dev.vars and fill in real values
+
+NEON_DATABASE_URL=postgres://user:password@ep-xxx.neon.tech/neondb?sslmode=require
+SESSION_SECRET=change-me-min-32-chars-random-string-here
+INVITE_CODE=prevmatec2026
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+APP_ORIGIN=http://localhost:8788
+TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png
