@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../ctx/AuthContext'
-import { Check, Clock, Bell, Filter } from 'lucide-react'
+import { Check, Clock, Bell, Bot, Plus, Trash2, ChevronDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { sk } from 'date-fns/locale'
 
@@ -11,7 +11,6 @@ type InstallationFilter = 'all' | 'mine' | 'reminders'
 
 export default function ProfilePage() {
   const { user } = useAuth()
-  const qc = useQueryClient()
   const [filter, setFilter] = useState<InstallationFilter>('mine')
   const [text, setSearch] = useState('')
 
@@ -25,12 +24,6 @@ export default function ProfilePage() {
     queryFn: () => api.installations.list(qParams),
   })
   const installations = instData?.data ?? []
-
-  // Upcoming open reminders (across all installations)
-  const { data: allInstData } = useQuery({
-    queryKey: ['installations', { hasOpenReminders: 'true', limit: '100' }],
-    queryFn: () => api.installations.list({ hasOpenReminders: 'true', limit: '100' }),
-  })
 
   const filters: { key: InstallationFilter; label: string }[] = [
     { key: 'mine', label: 'Moje' },
@@ -55,6 +48,9 @@ export default function ProfilePage() {
 
         {/* Upcoming reminders section */}
         <UpcomingReminders />
+
+        {/* Robots section */}
+        <RobotsSection />
 
         {/* Installations section */}
         <div className="space-y-3">
@@ -110,6 +106,127 @@ export default function ProfilePage() {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+function RobotsSection() {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ name: '', manufacturer: '', notes: '' })
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
+  const { data: robots = [] } = useQuery({
+    queryKey: ['robots'],
+    queryFn: () => api.robots.list(),
+  })
+
+  const create = useMutation({
+    mutationFn: () => api.robots.create(form),
+    onSuccess: () => {
+      setForm({ name: '', manufacturer: '', notes: '' })
+      setShowForm(false)
+      qc.invalidateQueries({ queryKey: ['robots'] })
+    },
+  })
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.robots.delete(id),
+    onSuccess: () => {
+      setDeleteId(null)
+      qc.invalidateQueries({ queryKey: ['robots'] })
+      qc.invalidateQueries({ queryKey: ['installations'] })
+    },
+  })
+
+  return (
+    <div className="card space-y-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 text-left"
+      >
+        <Bot size={17} className="text-brand-600 flex-shrink-0" />
+        <span className="font-semibold text-gray-800 flex-1">Roboty</span>
+        <span className="text-xs text-gray-400 mr-1">{(robots as any[]).length}</span>
+        <ChevronDown size={15} className={`text-gray-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="space-y-2 pt-1">
+          {(robots as any[]).map((r: any) => (
+            <div key={r.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2.5">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900">{r.name}</div>
+                {r.manufacturer && <div className="text-xs text-gray-500">{r.manufacturer}</div>}
+                {r.notes && <div className="text-xs text-gray-400 truncate">{r.notes}</div>}
+              </div>
+              {deleteId === r.id ? (
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="text-xs text-gray-500">Vymazať?</span>
+                  <button
+                    onClick={() => remove.mutate(r.id)}
+                    className="text-xs px-2 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >Áno</button>
+                  <button
+                    onClick={() => setDeleteId(null)}
+                    className="text-xs px-2 py-1 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                  >Nie</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setDeleteId(r.id)}
+                  className="text-gray-300 hover:text-red-500 p-1 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+
+          {showForm ? (
+            <div className="space-y-2 pt-1">
+              <input
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Model / názov *"
+                className="input-field"
+                autoFocus
+              />
+              <input
+                value={form.manufacturer}
+                onChange={e => setForm(f => ({ ...f, manufacturer: e.target.value }))}
+                placeholder="Výrobca"
+                className="input-field"
+              />
+              <input
+                value={form.notes}
+                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Poznámky"
+                className="input-field"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowForm(false); setForm({ name: '', manufacturer: '', notes: '' }) }}
+                  className="flex-1 btn-secondary text-sm py-2"
+                >Zrušiť</button>
+                <button
+                  onClick={() => create.mutate()}
+                  disabled={!form.name.trim() || create.isPending}
+                  className="flex-1 btn-primary text-sm py-2 disabled:opacity-40"
+                >{create.isPending ? '...' : 'Pridať'}</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowForm(true)}
+              className="w-full flex items-center gap-2 text-sm text-gray-500 hover:text-brand-600 py-1.5 px-2 rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              <Plus size={14} /> Pridať robota
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

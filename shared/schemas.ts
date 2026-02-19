@@ -46,6 +46,7 @@ export const InstallationFiltersSchema = z.object({
   mine: z.string().optional(),         // 'true'
   createdBy: z.string().optional(),
   robotId: z.string().optional(),
+  groupId: z.string().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   text: z.string().optional(),
@@ -57,7 +58,7 @@ export const InstallationFiltersSchema = z.object({
 // ─── Member ───────────────────────────────────────────────────────────────────
 
 export const AddMemberSchema = z.object({
-  email: z.string().email(),
+  userId: z.string().uuid(),
   role: z.string().optional(),
 })
 
@@ -85,6 +86,13 @@ export const CreateReminderSchema = z.object({
 export const PatchReminderSchema = z.object({
   status: z.enum(['open', 'done', 'snoozed']),
   snoozedUntil: z.string().datetime().optional(),
+})
+
+// ─── Group ────────────────────────────────────────────────────────────────────
+
+export const CreateGroupSchema = z.object({
+  name: z.string().min(1, 'Názov skupiny je povinný'),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 })
 
 // ─── Geocode ─────────────────────────────────────────────────────────────────

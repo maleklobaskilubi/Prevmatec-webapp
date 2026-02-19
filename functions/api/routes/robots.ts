@@ -25,3 +25,10 @@ robotsRouter.post('/', zValidator('json', CreateRobotSchema), async (c) => {
   const [robot] = await db.insert(robots).values(body).returning()
   return c.json(robot, 201)
 })
+
+robotsRouter.delete('/:id', async (c) => {
+  const db = c.get('db')
+  const id = c.req.param('id')
+  await db.delete(robots).where(eq(robots.id, id))
+  return c.json({ ok: true })
+})

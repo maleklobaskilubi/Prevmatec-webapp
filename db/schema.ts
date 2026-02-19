@@ -30,6 +30,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   notes: many(installationNotes),
   visits: many(visits),
   reminders: many(reminders),
+  groups: many(installationGroups),
 }))
 
 // ─── OAuth Identities ─────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ export const installationsRelations = relations(installations, ({ one, many }) =
   notes: many(installationNotes),
   visits: many(visits),
   reminders: many(reminders),
+  groupItems: many(installationGroupItems),
 }))
 
 // ─── Installation Members ─────────────────────────────────────────────────────
@@ -248,7 +250,50 @@ export const remindersRelations = relations(reminders, ({ one }) => ({
   }),
   creator: one(users, { fields: [reminders.createdBy], references: [users.id] }),
 }))
+// ─── Installation Groups ────────────────────────────────────────────────────
 
+export const installationGroups = pgTable(
+  'installation_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    color: text('color').notNull().default('#6366f1'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    createdByIdx: index('groups_created_by_idx').on(t.createdBy),
+  })
+)
+
+export const installationGroupsRelations = relations(installationGroups, ({ one, many }) => ({
+  creator: one(users, { fields: [installationGroups.createdBy], references: [users.id] }),
+  items: many(installationGroupItems),
+}))
+
+export const installationGroupItems = pgTable(
+  'installation_group_items',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => installationGroups.id, { onDelete: 'cascade' }),
+    installationId: uuid('installation_id')
+      .notNull()
+      .references(() => installations.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex('group_items_pk').on(t.groupId, t.installationId),
+    installationIdx: index('group_items_installation_idx').on(t.installationId),
+  })
+)
+
+export const installationGroupItemsRelations = relations(installationGroupItems, ({ one }) => ({
+  group: one(installationGroups, { fields: [installationGroupItems.groupId], references: [installationGroups.id] }),
+  installation: one(installations, { fields: [installationGroupItems.installationId], references: [installations.id] }),
+}))
 // ─── Geocode Cache ────────────────────────────────────────────────────────────
 
 export const geocodeCache = pgTable(

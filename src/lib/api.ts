@@ -49,6 +49,7 @@ export const api = {
     list: () => request<any[]>('/api/robots'),
     create: (body: object) =>
       request('/api/robots', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) => request(`/api/robots/${id}`, { method: 'DELETE' }),
   },
 
   installations: {
@@ -61,8 +62,10 @@ export const api = {
       request<any>('/api/installations', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: object) =>
       request<any>(`/api/installations/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    addMember: (id: string, body: { email: string; role?: string }) =>
+    addMember: (id: string, body: { userId: string; role?: string }) =>
       request(`/api/installations/${id}/members`, { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request(`/api/installations/${id}`, { method: 'DELETE' }),
     removeMember: (id: string, userId: string) =>
       request(`/api/installations/${id}/members/${userId}`, { method: 'DELETE' }),
 
@@ -90,10 +93,19 @@ export const api = {
       request(`/api/reminders/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   },
 
-  geocode: {
-    search: (q: string) =>
-      request<any[]>(`/api/geocode?${new URLSearchParams({ q })}`),
-    reverse: (lat: number, lon: number) =>
-      request<any>(`/api/reverse?lat=${lat}&lon=${lon}`),
+  users: {
+    list: () => request<{ id: string; name: string; email: string }[]>('/api/users'),
+  },
+
+  groups: {
+    list: () => request<{ id: string; name: string; color: string; createdBy: string; installationCount: number }[]>('/api/groups'),
+    create: (body: { name: string; color?: string }) =>
+      request<any>('/api/groups', { method: 'POST', body: JSON.stringify(body) }),
+    delete: (id: string) =>
+      request(`/api/groups/${id}`, { method: 'DELETE' }),
+    addInstallation: (groupId: string, installationId: string) =>
+      request(`/api/groups/${groupId}/installations`, { method: 'POST', body: JSON.stringify({ installationId }) }),
+    removeInstallation: (groupId: string, installationId: string) =>
+      request(`/api/groups/${groupId}/installations/${installationId}`, { method: 'DELETE' }),
   },
 }

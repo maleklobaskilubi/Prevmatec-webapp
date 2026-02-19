@@ -136,5 +136,6 @@ export interface InstallationGeoFeature {
     addressText: string
     installedAt: string
     robotName: string | null
+    groups?: Array<{ id: string; name: string; color: string }>
   }
 }

@@ -11,6 +11,7 @@ import { robotsRouter } from './routes/robots'
 import { installationsRouter } from './routes/installations'
 import { geocodeRouter } from './routes/geocode'
 import { remindersRouter } from './routes/reminders'
+import { groupsRouter } from './routes/groups'
 import type { AppContext } from './types'
 
 const app = new Hono<AppContext>()
@@ -35,6 +36,7 @@ app.route('/api/robots', robotsRouter)
 app.route('/api/installations', installationsRouter)
 app.route('/api', geocodeRouter)
 app.route('/api/reminders', remindersRouter)
+app.route('/api/groups', groupsRouter)
 
 // GET /api/me — standalone (not under /auth)
 app.get('/api/me', async (c) => {
@@ -53,5 +55,19 @@ app.get('/api/me', async (c) => {
 })
 
 app.get('/api/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
+
+// GET /api/users — all registered users (for member picker)
+app.get('/api/users', async (c) => {
+  const userId = await getSessionUserId(c)
+  if (!userId) return c.json({ error: 'Unauthorized' }, 401)
+
+  const db = c.get('db')
+  const all = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .orderBy(users.name)
+
+  return c.json(all)
+})
 
 export const onRequest = handle(app)

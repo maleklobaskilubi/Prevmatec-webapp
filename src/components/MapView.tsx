@@ -1,198 +1,159 @@
 import { useEffect, useRef } from 'react'
-import maplibregl from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { ensureMaps, ensureMarker } from '../lib/googleMaps'
+import { MarkerClusterer } from '@googlemaps/markerclusterer'
 import type { InstallationGeoFeature } from '@shared/types'
 
 export interface MapViewProps {
   installations: InstallationGeoFeature[]
-  tileUrl?: string
-  center?: [number, number]
+  center?: { lat: number; lng: number }
   zoom?: number
-  onMapReady?: (map: maplibregl.Map) => void
   onInstallationClick?: (id: string) => void
-  pendingPin?: { lat: number; lon: number } | null
+  onMapClick?: (lat: number, lng: number) => void
+  pendingPin?: { lat: number; lng: number } | null
 }
 
-const DEFAULT_CENTER: [number, number] = [19.15, 48.7] // Slovakia center
+const DEFAULT_CENTER = { lat: 48.7, lng: 19.15 }
 const DEFAULT_ZOOM = 7
-const DEFAULT_TILE = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 export default function MapView({
   installations,
-  tileUrl = DEFAULT_TILE,
   center = DEFAULT_CENTER,
   zoom = DEFAULT_ZOOM,
-  onMapReady,
   onInstallationClick,
+  onMapClick,
   pendingPin,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<maplibregl.Map | null>(null)
-  const mapReadyRef = useRef(false)          // true once map 'load' fires
-  const pendingMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const popupRef = useRef<maplibregl.Popup | null>(null)
-  const installationsRef = useRef<InstallationGeoFeature[]>(installations)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const clustererRef = useRef<MarkerClusterer | null>(null)
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
+  const pendingMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const onMapClickRef = useRef(onMapClick)
+  const installationsRef = useRef(installations)
 
-  // Always keep ref in sync with latest prop
+  onMapClickRef.current = onMapClick
   installationsRef.current = installations
-
-  function setSourceData(map: maplibregl.Map) {
-    const source = map.getSource('installations') as maplibregl.GeoJSONSource | undefined
-    if (!source) return
-    source.setData({ type: 'FeatureCollection', features: installationsRef.current })
-  }
 
   // ── Initialize map once ───────────────────────────────────────────────────
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    if (!containerRef.current) return
+    let cancelled = false
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: {
-        version: 8,
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-        sources: {
-          osm: {
-            type: 'raster',
-            tiles: [tileUrl],
-            tileSize: 256,
-            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          },
-        },
-        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-      },
-      center,
-      zoom,
-    })
+    ensureMaps().then(async () => {
+      if (cancelled || !containerRef.current) return
 
-    // Set ref immediately so update effect can find it
-    mapRef.current = map
+      await ensureMarker()
+      if (cancelled || !containerRef.current) return
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
-    map.addControl(
-      new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: false }),
-      'top-right',
-    )
-
-    map.on('load', () => {
-      map.addSource('installations', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-        cluster: true,
-        clusterMaxZoom: 14,
-        clusterRadius: 50,
+      const map = new google.maps.Map(containerRef.current, {
+        center,
+        zoom,
+        mapId: import.meta.env.VITE_GOOGLE_MAPS_MAP_ID ?? 'DEMO_MAP_ID',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        gestureHandling: 'greedy',
       })
 
-      map.addLayer({
-        id: 'clusters',
-        type: 'circle',
-        source: 'installations',
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': ['step', ['get', 'point_count'], '#3b82f6', 10, '#2563eb', 30, '#1d4ed8'],
-          'circle-radius': ['step', ['get', 'point_count'], 20, 10, 28, 30, 36],
-          'circle-opacity': 0.9,
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#fff',
-        },
+      mapRef.current = map
+      infoWindowRef.current = new google.maps.InfoWindow()
+
+      const clusterer = new MarkerClusterer({ map })
+      clustererRef.current = clusterer
+
+      map.addListener('click', (e: google.maps.MapMouseEvent) => {
+        if (e.latLng) onMapClickRef.current?.(e.latLng.lat(), e.latLng.lng())
       })
 
-      map.addLayer({
-        id: 'cluster-count',
-        type: 'symbol',
-        source: 'installations',
-        filter: ['has', 'point_count'],
-        layout: {
-          'text-field': '{point_count_abbreviated}',
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-          'text-size': 13,
-        },
-        paint: { 'text-color': '#ffffff' },
-      })
-
-      map.addLayer({
-        id: 'unclustered-point',
-        type: 'circle',
-        source: 'installations',
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-          'circle-color': '#1d4ed8',
-          'circle-radius': 9,
-          'circle-stroke-width': 2.5,
-          'circle-stroke-color': '#fff',
-        },
-      })
-
-      map.on('click', 'unclustered-point', (e) => {
-        const feature = e.features?.[0]
-        if (!feature) return
-        const { id, venueName, addressText, installedAt, robotName } = feature.properties as any
-        const coords = (feature.geometry as any).coordinates.slice() as [number, number]
-
-        popupRef.current?.remove()
-        popupRef.current = new maplibregl.Popup({ offset: 14, closeButton: true })
-          .setLngLat(coords)
-          .setHTML(`
-            <div style="padding:12px;min-width:200px;font-family:sans-serif">
-              <div style="font-weight:600;font-size:14px;color:#111">${venueName}</div>
-              <div style="font-size:12px;color:#6b7280;margin-top:2px">${addressText}</div>
-              ${robotName ? `<div style="font-size:12px;color:#2563eb;margin-top:4px">🤖 ${robotName}</div>` : ''}
-              <div style="font-size:11px;color:#9ca3af;margin-top:4px">${installedAt ?? ''}</div>
-              <a href="/installations/${id}"
-                style="display:block;margin-top:8px;text-align:center;background:#1d4ed8;color:#fff;
-                       font-size:12px;padding:6px 12px;border-radius:8px;text-decoration:none">
-                Otvoriť detail →
-              </a>
-            </div>
-          `)
-          .addTo(map)
-        onInstallationClick?.(id)
-      })
-
-      map.on('click', 'clusters', (e) => {
-        const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] })
-        const clusterId = features[0]?.properties?.cluster_id
-        const source = map.getSource('installations') as maplibregl.GeoJSONSource
-        source.getClusterExpansionZoom(clusterId)
-          .then((z) => map.easeTo({ center: (features[0].geometry as any).coordinates, zoom: z }))
-          .catch(() => {})
-      })
-
-      map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', 'unclustered-point', () => { map.getCanvas().style.cursor = '' })
-      map.on('mouseenter', 'clusters', () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', 'clusters', () => { map.getCanvas().style.cursor = '' })
-
-      // Mark ready and load initial data
-      mapReadyRef.current = true
-      setSourceData(map)
-      onMapReady?.(map)
+      renderMarkers(map, clusterer)
     })
 
     return () => {
-      mapReadyRef.current = false
+      cancelled = true
+      clustererRef.current?.clearMarkers()
+      markersRef.current = []
       mapRef.current = null
-      map.remove()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Sync installations whenever prop changes ──────────────────────────────
+  // ── Pin element helper ────────────────────────────────────────────────────────
+  function makePinElement(color: string): HTMLElement {
+    const pin = new google.maps.marker.PinElement({
+      background: color,
+      borderColor: shadeColor(color, -25),
+      glyphColor: 'rgba(255,255,255,0.9)',
+    })
+    return pin.element
+  }
+
+  function shadeColor(hex: string, pct: number): string {
+    const n = parseInt(hex.slice(1), 16)
+    const r = Math.min(255, Math.max(0, (n >> 16) + pct))
+    const g = Math.min(255, Math.max(0, ((n >> 8) & 0xff) + pct))
+    const b = Math.min(255, Math.max(0, (n & 0xff) + pct))
+    return `rgb(${r},${g},${b})`
+  }
+
+  // ── Render markers helper ─────────────────────────────────────────────────
+  function renderMarkers(map: google.maps.Map, clusterer: MarkerClusterer) {
+    markersRef.current.forEach(m => { m.map = null })
+    markersRef.current = []
+    clusterer.clearMarkers()
+
+    const newMarkers = installationsRef.current.map((feature) => {
+      const [lng, lat] = feature.geometry.coordinates
+      const color = feature.properties.groups?.[0]?.color ?? '#ef4444'
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: { lat, lng },
+        title: feature.properties.venueName,
+        content: makePinElement(color),
+      })
+      marker.addListener('click', () => {
+        const { id, venueName, addressText, installedAt, robotName } = feature.properties
+        infoWindowRef.current?.setContent(`
+          <div style="padding:10px;min-width:190px;font-family:-apple-system,sans-serif">
+            <div style="font-weight:600;font-size:14px;color:#111827">${venueName}</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:3px">${addressText}</div>
+            ${robotName ? `<div style="font-size:12px;color:#2563eb;margin-top:4px">🤖 ${robotName}</div>` : ''}
+            <div style="font-size:11px;color:#9ca3af;margin-top:3px">${installedAt ?? ''}</div>
+            <a href="/installations/${id}"
+              style="display:block;margin-top:10px;text-align:center;background:#1d4ed8;color:#fff;
+                     font-size:12px;padding:6px 12px;border-radius:8px;text-decoration:none">
+              Otvoriť detail →
+            </a>
+          </div>
+        `)
+        infoWindowRef.current?.open({ anchor: marker, map })
+        onInstallationClick?.(id)
+      })
+      return marker
+    })
+
+    markersRef.current = newMarkers
+    clusterer.addMarkers(newMarkers)
+  }
+
+  // ── Sync markers when installations change ────────────────────────────────
   useEffect(() => {
-    if (!mapReadyRef.current || !mapRef.current) return
-    setSourceData(mapRef.current)
+    if (!mapRef.current || !clustererRef.current) return
+    renderMarkers(mapRef.current, clustererRef.current)
   }, [installations]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pending pin marker ────────────────────────────────────────────────────
   useEffect(() => {
-    pendingMarkerRef.current?.remove()
-    pendingMarkerRef.current = null
+    if (pendingMarkerRef.current) { pendingMarkerRef.current.map = null; pendingMarkerRef.current = null }
     if (!pendingPin || !mapRef.current) return
-    const el = document.createElement('div')
-    el.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#f97316;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)'
-    pendingMarkerRef.current = new maplibregl.Marker({ element: el })
-      .setLngLat([pendingPin.lon, pendingPin.lat])
-      .addTo(mapRef.current)
-    mapRef.current.flyTo({ center: [pendingPin.lon, pendingPin.lat], zoom: 14 })
+    const dot = document.createElement('div')
+    dot.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#f97316;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35)'
+    pendingMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+      position: { lat: pendingPin.lat, lng: pendingPin.lng },
+      map: mapRef.current,
+      content: dot,
+      zIndex: 999,
+    })
+    mapRef.current.panTo({ lat: pendingPin.lat, lng: pendingPin.lng })
+    mapRef.current.setZoom(15)
   }, [pendingPin])
 
   return <div ref={containerRef} className="w-full h-full" />

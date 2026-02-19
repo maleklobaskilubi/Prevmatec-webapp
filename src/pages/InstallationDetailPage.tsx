@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../lib/api'
 import { useAuth } from '../ctx/AuthContext'
-import { ArrowLeft, MapPin, User, Phone, Calendar, Bot, Plus, Check, Clock, Trash2 } from 'lucide-react'
+import { ArrowLeft, MapPin, User, Phone, Calendar, Bot, Plus, Check, Clock, Trash2, AlertTriangle, Layers, X } from 'lucide-react'
 import { format } from 'date-fns'
 import { sk } from 'date-fns/locale'
 
@@ -15,6 +15,8 @@ export default function InstallationDetailPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabType>('info')
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const { data: installation, isLoading } = useQuery({
     queryKey: ['installation', id],
@@ -41,6 +43,14 @@ export default function InstallationDetailPage() {
   })
 
   const isCreator = installation?.createdBy === user?.id
+
+  const deleteInstallation = useMutation({
+    mutationFn: () => api.installations.delete(id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installations'] })
+      navigate('/', { replace: true })
+    },
+  })
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center text-gray-400">Načítavam...</div>
@@ -69,11 +79,51 @@ export default function InstallationDetailPage() {
           <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-gray-200 transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{installation.venueName}</h1>
-            <p className="text-sm text-gray-500">{installation.addressText}</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold text-gray-900 truncate">{installation.venueName}</h1>
+            <p className="text-sm text-gray-500 truncate">{installation.addressText}</p>
           </div>
+          {isCreator && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+              title="Vymazať inštaláciu"
+            >
+              <Trash2 size={18} />
+            </button>
+          )}
         </div>
+
+        {/* Delete confirmation dialog */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+              <div className="flex items-center gap-3 text-red-600">
+                <AlertTriangle size={24} />
+                <h2 className="text-lg font-bold">Vymazať inštaláciu?</h2>
+              </div>
+              <p className="text-sm text-gray-600">
+                Tým sa natrvalo vymažú všetky poznámky, návštevy, remindere a členovia tejto inštalácie.
+                Táto akcia sa nedá vrátiť.
+              </p>
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Zrušiť
+                </button>
+                <button
+                  onClick={() => deleteInstallation.mutate()}
+                  disabled={deleteInstallation.isPending}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  {deleteInstallation.isPending ? 'Mažem...' : 'Vymazať'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Open reminders banner */}
         {openReminders.length > 0 && (
@@ -104,7 +154,7 @@ export default function InstallationDetailPage() {
         </div>
 
         {/* Tab content */}
-        {activeTab === 'info' && <InfoTab installation={installation} isCreator={isCreator} robots={[]} />}
+        {activeTab === 'info' && <InfoTab installation={installation} isCreator={isCreator} members={installation.members ?? []} installationGroups={installation.groups ?? []} />}
         {activeTab === 'notes' && <NotesTab notes={notes ?? []} installationId={id!} />}
         {activeTab === 'visits' && <VisitsTab visits={visits ?? []} installationId={id!} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders ?? []} installationId={id!} />}
@@ -118,9 +168,10 @@ export default function InstallationDetailPage() {
 
 // ─── Info Tab ─────────────────────────────────────────────────────────────────
 
-function InfoTab({ installation, isCreator, robots }: { installation: any; isCreator: boolean; robots: any[] }) {
+function InfoTab({ installation, isCreator, members, installationGroups }: { installation: any; isCreator: boolean; members: any[]; installationGroups: any[] }) {
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
+  const [addingGroup, setAddingGroup] = useState(false)
   const [form, setForm] = useState({
     venueName: installation.venueName,
     addressText: installation.addressText,
@@ -130,6 +181,11 @@ function InfoTab({ installation, isCreator, robots }: { installation: any; isCre
   })
   const [error, setError] = useState('')
 
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => api.groups.list(),
+  })
+
   const update = useMutation({
     mutationFn: (data: object) => api.installations.update(installation.id, data),
     onSuccess: () => {
@@ -138,6 +194,28 @@ function InfoTab({ installation, isCreator, robots }: { installation: any; isCre
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : 'Chyba'),
   })
+
+  const addToGroup = useMutation({
+    mutationFn: (groupId: string) => api.groups.addInstallation(groupId, installation.id),
+    onSuccess: () => {
+      setAddingGroup(false)
+      qc.invalidateQueries({ queryKey: ['installation', installation.id] })
+      qc.invalidateQueries({ queryKey: ['installations'] })
+      qc.invalidateQueries({ queryKey: ['groups'] })
+    },
+  })
+
+  const removeFromGroup = useMutation({
+    mutationFn: (groupId: string) => api.groups.removeInstallation(groupId, installation.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['installation', installation.id] })
+      qc.invalidateQueries({ queryKey: ['installations'] })
+      qc.invalidateQueries({ queryKey: ['groups'] })
+    },
+  })
+
+  const assignedGroupIds = new Set(installationGroups.map((g: any) => g.id))
+  const availableGroups = (allGroups as any[]).filter(g => !assignedGroupIds.has(g.id))
 
   const fields = [
     { icon: <MapPin size={16} />, label: 'Adresa', value: installation.addressText },
@@ -161,6 +239,69 @@ function InfoTab({ installation, isCreator, robots }: { installation: any; isCre
               </div>
             </div>
           ))}
+          {members.length > 0 && (
+            <div className="flex gap-3 items-start pt-1">
+              <span className="text-gray-400 mt-0.5"><User size={16} /></span>
+              <div className="flex-1">
+                <div className="text-xs text-gray-400 mb-1.5">Účastníci</div>
+                <div className="space-y-1.5">
+                  {members.map((m: any) => (
+                    <div key={m.userId} className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                        {m.user?.name?.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-gray-800">{m.user?.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Groups */}
+          <div className="flex gap-3 items-start pt-1">
+            <span className="text-gray-400 mt-0.5"><Layers size={16} /></span>
+            <div className="flex-1">
+              <div className="text-xs text-gray-400 mb-2">Skupiny</div>
+              <div className="flex flex-wrap gap-1.5">
+                {installationGroups.length === 0 && <span className="text-xs text-gray-400">Bez skupiny</span>}
+                {installationGroups.map((g: any) => (
+                  <span key={g.id} className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full text-white font-medium" style={{ background: g.color }}>
+                    {g.name}
+                    <button onClick={() => removeFromGroup.mutate(g.id)} className="hover:opacity-70 ml-0.5"><X size={10} /></button>
+                  </span>
+                ))}
+                {addingGroup ? (
+                  <div className="relative">
+                    {availableGroups.length === 0 ? (
+                      <span className="text-xs text-gray-400 italic">Nie sú ďalšie skupiny</span>
+                    ) : (
+                      <div className="absolute z-10 top-6 left-0 bg-white border border-gray-200 rounded-xl shadow-lg min-w-40 overflow-hidden">
+                        {availableGroups.map((g: any) => (
+                          <button
+                            key={g.id}
+                            onClick={() => addToGroup.mutate(g.id)}
+                            className="w-full flex items-center gap-2 text-sm px-3 py-2 hover:bg-gray-50 transition-colors"
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
+                            {g.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={() => setAddingGroup(false)} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-300 px-2 py-0.5 rounded-full">zrušiť</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingGroup(true)}
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 border border-dashed border-gray-300 px-2 py-0.5 rounded-full hover:border-brand-400 transition-colors"
+                  >
+                    <Plus size={10} /> pridať
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
           {isCreator && (
             <button onClick={() => setEditing(true)} className="mt-3 btn-secondary text-sm w-full py-2">
               Upraviť
@@ -402,13 +543,22 @@ function RemindersTab({ reminders, installationId }: { reminders: any[]; install
 
 function MembersTab({ members, installationId, isCreator }: { members: any[]; installationId: string; isCreator: boolean }) {
   const qc = useQueryClient()
-  const [email, setEmail] = useState('')
+  const [selectedUserId, setSelectedUserId] = useState('')
   const [error, setError] = useState('')
 
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.users.list(),
+    enabled: isCreator,
+  })
+
+  const memberIds = new Set(members.map((m: any) => m.userId))
+  const availableUsers = allUsers.filter((u: any) => !memberIds.has(u.id))
+
   const add = useMutation({
-    mutationFn: () => api.installations.addMember(installationId, { email }),
+    mutationFn: () => api.installations.addMember(installationId, { userId: selectedUserId }),
     onSuccess: () => {
-      setEmail('')
+      setSelectedUserId('')
       qc.invalidateQueries({ queryKey: ['installation', installationId] })
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : 'Chyba'),
@@ -423,16 +573,19 @@ function MembersTab({ members, installationId, isCreator }: { members: any[]; in
     <div className="space-y-3">
       {isCreator && (
         <div className="card">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Pridať účastníka podľa emailu</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Pridať účastníka</label>
           <div className="flex gap-2">
-            <input
-              type="email"
-              value={email}
-              onChange={e => { setEmail(e.target.value); setError('') }}
+            <select
+              value={selectedUserId}
+              onChange={e => { setSelectedUserId(e.target.value); setError('') }}
               className="flex-1 input-field"
-              placeholder="email@prevmatec.sk"
-            />
-            <button onClick={() => add.mutate()} disabled={!email || add.isPending}
+            >
+              <option value="">— Vyber používateľa —</option>
+              {availableUsers.map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+              ))}
+            </select>
+            <button onClick={() => add.mutate()} disabled={!selectedUserId || add.isPending}
               className="btn-primary px-4 text-sm py-2">
               {add.isPending ? '...' : 'Pridať'}
             </button>
@@ -445,9 +598,14 @@ function MembersTab({ members, installationId, isCreator }: { members: any[]; in
         {members.length === 0 && <div className="text-sm text-gray-400">Žiadni ďalší účastníci</div>}
         {members.map((m: any) => (
           <div key={m.userId} className="flex items-center justify-between py-1">
-            <div>
-              <div className="text-sm font-medium text-gray-800">{m.user?.name}</div>
-              <div className="text-xs text-gray-400">{m.user?.email}</div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                {m.user?.name?.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-800">{m.user?.name}</div>
+                <div className="text-xs text-gray-400">{m.user?.email}</div>
+              </div>
             </div>
             {isCreator && (
               <button

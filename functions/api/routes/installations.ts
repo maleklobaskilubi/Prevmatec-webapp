@@ -9,6 +9,8 @@ import {
   reminders,
   robots,
   users,
+  installationGroups,
+  installationGroupItems,
 } from '../../../db/schema'
 import { requireAuth } from '../lib/session'
 import {
@@ -77,6 +79,16 @@ installationsRouter.get('/', zValidator('query', InstallationFiltersSchema), asy
     )
   }
 
+  if (q.groupId) {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM installation_group_items gi
+        WHERE gi.installation_id = ${installations.id}
+          AND gi.group_id = ${q.groupId}
+      )`
+    )
+  }
+
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined
 
   // Single query: main data + counts as inline subqueries + total via window function
@@ -103,6 +115,12 @@ installationsRouter.get('/', zValidator('query', InstallationFiltersSchema), asy
         SELECT COUNT(*)::int FROM installation_members im
         WHERE im.installation_id = ${installations.id}
       )`,
+      groups: sql<{id: string; name: string; color: string}[]>`COALESCE((
+        SELECT json_agg(json_build_object('id', g.id, 'name', g.name, 'color', g.color) ORDER BY g.name)
+        FROM installation_group_items gi
+        JOIN installation_groups g ON g.id = gi.group_id
+        WHERE gi.installation_id = ${installations.id}
+      ), '[]'::json)`,
       total: sql<number>`COUNT(*) OVER ()`,
     })
     .from(installations)
@@ -129,6 +147,7 @@ installationsRouter.get('/', zValidator('query', InstallationFiltersSchema), asy
     creator: { id: r.createdBy, name: r.creatorName, email: r.creatorEmail },
     openReminderCount: r.openReminderCount ?? 0,
     memberCount: r.memberCount ?? 0,
+    groups: r.groups ?? [],
   }))
 
   return c.json({ data, total, page, limit })
@@ -204,6 +223,16 @@ installationsRouter.get('/:id', async (c) => {
     .leftJoin(users, eq(installationMembers.userId, users.id))
     .where(eq(installationMembers.installationId, id))
 
+  const groups = await db
+    .select({
+      id: installationGroups.id,
+      name: installationGroups.name,
+      color: installationGroups.color,
+    })
+    .from(installationGroupItems)
+    .innerJoin(installationGroups, eq(installationGroupItems.groupId, installationGroups.id))
+    .where(eq(installationGroupItems.installationId, id))
+
   return c.json({
     ...row,
     lat: parseFloat(row.lat as unknown as string),
@@ -218,6 +247,7 @@ installationsRouter.get('/:id', async (c) => {
       addedAt: m.addedAt,
       user: { id: m.userId, name: m.name, email: m.email },
     })),
+    groups,
   })
 })
 
@@ -259,13 +289,34 @@ installationsRouter.patch('/:id', zValidator('json', PatchInstallationSchema), a
   return c.json({ ...updated, lat: parseFloat(updated.lat as unknown as string), lon: parseFloat(updated.lon as unknown as string) })
 })
 
+// ─── DELETE /api/installations/:id ───────────────────────────────────────────
+
+installationsRouter.delete('/:id', async (c) => {
+  const db = c.get('db')
+  const userId = c.get('userId')!
+  const { id } = c.req.param()
+
+  const [existing] = await db
+    .select({ createdBy: installations.createdBy })
+    .from(installations)
+    .where(eq(installations.id, id))
+    .limit(1)
+
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+  if (existing.createdBy !== userId) return c.json({ error: 'Forbidden' }, 403)
+
+  await db.delete(installations).where(eq(installations.id, id))
+
+  return c.json({ ok: true })
+})
+
 // ─── POST /api/installations/:id/members ─────────────────────────────────────
 
 installationsRouter.post('/:id/members', zValidator('json', AddMemberSchema), async (c) => {
   const db = c.get('db')
   const userId = c.get('userId')!
   const { id } = c.req.param()
-  const { email, role } = c.req.valid('json')
+  const { userId: targetUserId, role } = c.req.valid('json')
 
   const [installation] = await db
     .select({ createdBy: installations.createdBy })
@@ -279,10 +330,10 @@ installationsRouter.post('/:id/members', zValidator('json', AddMemberSchema), as
   const [targetUser] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, email))
+    .where(eq(users.id, targetUserId))
     .limit(1)
 
-  if (!targetUser) return c.json({ error: 'Používateľ s týmto emailom neexistuje' }, 404)
+  if (!targetUser) return c.json({ error: 'Používateľ neexistuje' }, 404)
 
   await db
     .insert(installationMembers)

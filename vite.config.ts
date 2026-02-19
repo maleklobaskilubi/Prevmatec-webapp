@@ -12,16 +12,7 @@ export default defineConfig({
       manifest: false, // defined in public/manifest.webmanifest
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/tile\.openstreetmap\.org\//,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'osm-tiles',
-              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-        ],
+        runtimeCaching: [],
       },
     }),
   ],

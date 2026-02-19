@@ -26,13 +26,15 @@
   }
 }
 
-/* MapLibre overrides */
-.maplibregl-map {
-  font-family: inherit;
+/* Google Maps InfoWindow overrides */
+.gm-style-iw-d {
+  overflow: hidden !important;
 }
-.maplibregl-popup-content {
-  @apply rounded-xl shadow-lg p-0 overflow-hidden;
+.gm-style-iw {
+  @apply rounded-xl shadow-lg !important;
+  padding: 0 !important;
 }
-.maplibregl-popup-close-button {
-  @apply text-gray-500 text-xl pr-2;
+.gm-style-iw-tc::after,
+.gm-style-iw-tc {
+  display: none;
 }
