@@ -178,18 +178,41 @@ function InfoTab({ installation, isCreator, members, installationGroups }: { ins
     managerName: installation.managerName ?? '',
     managerContact: installation.managerContact ?? '',
     installedAt: installation.installedAt,
+    robotId: installation.robotId ?? '',
   })
   const [error, setError] = useState('')
+  const [showNewRobot, setShowNewRobot] = useState(false)
+  const [newRobot, setNewRobot] = useState({ name: '', manufacturer: '', notes: '' })
+  const [newRobotError, setNewRobotError] = useState('')
 
   const { data: allGroups = [] } = useQuery({
     queryKey: ['groups'],
     queryFn: () => api.groups.list(),
   })
 
+  const { data: allRobots = [] } = useQuery({
+    queryKey: ['robots'],
+    queryFn: () => api.robots.list(),
+    enabled: editing,
+  })
+
+  const createRobot = useMutation({
+    mutationFn: () => api.robots.create(newRobot),
+    onSuccess: (created: any) => {
+      qc.invalidateQueries({ queryKey: ['robots'] })
+      setForm(f => ({ ...f, robotId: created.id }))
+      setShowNewRobot(false)
+      setNewRobot({ name: '', manufacturer: '', notes: '' })
+      setNewRobotError('')
+    },
+    onError: (err) => setNewRobotError(err instanceof ApiError ? err.message : 'Chyba'),
+  })
+
   const update = useMutation({
     mutationFn: (data: object) => api.installations.update(installation.id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['installation', installation.id] })
+      qc.invalidateQueries({ queryKey: ['installations'] })
       setEditing(false)
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : 'Chyba'),
@@ -309,7 +332,11 @@ function InfoTab({ installation, isCreator, members, installationGroups }: { ins
           )}
         </>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); update.mutate(form) }} className="space-y-3">
+        <form onSubmit={(e) => {
+          e.preventDefault()
+          const payload = { ...form, robotId: form.robotId ? form.robotId : null }
+          update.mutate(payload)
+        }} className="space-y-3">
           {[
             { name: 'venueName', label: 'Názov prevádzky' },
             { name: 'addressText', label: 'Adresa' },
@@ -331,6 +358,69 @@ function InfoTab({ installation, isCreator, members, installationGroups }: { ins
             <input type="date" name="installedAt" value={form.installedAt}
               onChange={e => setForm({ ...form, installedAt: e.target.value })} className="input-field" />
           </div>
+
+          {/* Robot select */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Robot</label>
+            {showNewRobot ? (
+              <div className="border border-brand-200 rounded-xl p-3 space-y-2 bg-brand-50">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-brand-700">Nový robot</span>
+                  <button type="button" onClick={() => { setShowNewRobot(false); setNewRobotError('') }}
+                    className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                </div>
+                <input
+                  value={newRobot.name}
+                  onChange={e => setNewRobot(r => ({ ...r, name: e.target.value }))}
+                  placeholder="Názov / model *"
+                  className="input-field text-sm"
+                />
+                <input
+                  value={newRobot.manufacturer}
+                  onChange={e => setNewRobot(r => ({ ...r, manufacturer: e.target.value }))}
+                  placeholder="Výrobca (voliteľné)"
+                  className="input-field text-sm"
+                />
+                <input
+                  value={newRobot.notes}
+                  onChange={e => setNewRobot(r => ({ ...r, notes: e.target.value }))}
+                  placeholder="Poznámka (voliteľné)"
+                  className="input-field text-sm"
+                />
+                {newRobotError && <div className="text-red-600 text-xs">{newRobotError}</div>}
+                <button
+                  type="button"
+                  onClick={() => { if (newRobot.name.trim()) createRobot.mutate() }}
+                  disabled={!newRobot.name.trim() || createRobot.isPending}
+                  className="btn-primary w-full text-sm py-1.5"
+                >
+                  {createRobot.isPending ? 'Ukladám...' : 'Vytvoriť a priradiť'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={form.robotId}
+                  onChange={e => setForm(f => ({ ...f, robotId: e.target.value }))}
+                  className="input-field flex-1"
+                >
+                  <option value="">— bez robota —</option>
+                  {(allRobots as any[]).map((r: any) => (
+                    <option key={r.id} value={r.id}>{r.name}{r.manufacturer ? ` (${r.manufacturer})` : ''}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowNewRobot(true)}
+                  title="Pridať nový robot"
+                  className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-xl border border-dashed border-gray-300 text-gray-400 hover:text-brand-600 hover:border-brand-400 transition-colors"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            )}
+          </div>
+
           {error && <div className="text-red-600 text-sm">{error}</div>}
           <div className="flex gap-2">
             <button type="button" onClick={() => setEditing(false)} className="btn-secondary flex-1 text-sm py-2">Zrušiť</button>

@@ -40,7 +40,9 @@ export const CreateInstallationSchema = z.object({
   robotId: z.string().uuid().optional(),
 })
 
-export const PatchInstallationSchema = CreateInstallationSchema.partial()
+export const PatchInstallationSchema = CreateInstallationSchema.partial().extend({
+  robotId: z.string().uuid().nullish(), // allows null (clear robot), undefined (no change), or valid UUID
+})
 
 export const InstallationFiltersSchema = z.object({
   mine: z.string().optional(),         // 'true'
