@@ -38,6 +38,12 @@ export default function MapPage() {
   const [newGroupColor, setNewGroupColor] = useState('#6366f1')
   const [popoverInstId, setPopoverInstId] = useState<string | null>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Bottom-sheet drag state
+  const sheetTouchStartY = useRef<number | null>(null)
+  const sheetDragOffsetRef = useRef(0)
+  const fabTouchStartY = useRef<number | null>(null)
+  const [sheetDragOffset, setSheetDragOffset] = useState(0)
+  const [isSheetDragging, setIsSheetDragging] = useState(false)
 
   // Build query params — memoized so queryKey stays stable between renders
   const queryParams = useMemo(() => {
@@ -162,6 +168,31 @@ export default function MapPage() {
     setSelectedPin(null)
   }
 
+  // ── Bottom-sheet drag handlers ─────────────────────────────────────────────
+  function onHandleTouchStart(e: React.TouchEvent) {
+    sheetTouchStartY.current = e.touches[0].clientY
+    sheetDragOffsetRef.current = 0
+    setIsSheetDragging(true)
+    setSheetDragOffset(0)
+  }
+
+  function onHandleTouchMove(e: React.TouchEvent) {
+    if (sheetTouchStartY.current === null) return
+    const delta = Math.max(0, e.touches[0].clientY - sheetTouchStartY.current)
+    sheetDragOffsetRef.current = delta
+    setSheetDragOffset(delta)
+  }
+
+  function onHandleTouchEnd() {
+    const offset = sheetDragOffsetRef.current
+    // Close if dragged > 80 px OR if it was a simple tap (< 5 px movement)
+    if (offset > 80 || offset < 5) setSidebarOpen(false)
+    setIsSheetDragging(false)
+    setSheetDragOffset(0)
+    sheetDragOffsetRef.current = 0
+    sheetTouchStartY.current = null
+  }
+
   async function handleMapClick(lat: number, lng: number) {
     await ensurePlaces()
     new google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
@@ -237,7 +268,14 @@ export default function MapPage() {
       {!sidebarOpen && (
         <button
           onClick={() => setSidebarOpen(true)}
-          className="md:hidden absolute bottom-6 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-2xl px-5 py-2.5 shadow-lg flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          onTouchStart={(e) => { fabTouchStartY.current = e.touches[0].clientY }}
+          onTouchEnd={(e) => {
+            if (fabTouchStartY.current === null) return
+            const delta = e.changedTouches[0].clientY - fabTouchStartY.current
+            if (delta < -30) setSidebarOpen(true) // swipe-up to open
+            fabTouchStartY.current = null
+          }}
+          className="md:hidden absolute bottom-safe-6 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-2xl px-5 py-2.5 shadow-lg flex items-center gap-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <SlidersHorizontal size={15} /> Inštalácie ({installations.length})
         </button>
@@ -245,16 +283,24 @@ export default function MapPage() {
 
       {/* Sidebar — bottom sheet on mobile, left drawer on desktop */}
       <div
-        className={`absolute z-10 bg-white shadow-xl flex flex-col transition-transform duration-200
+        className={`absolute z-10 bg-white shadow-xl flex flex-col
           bottom-0 left-0 right-0 h-[58vh] rounded-t-2xl
           md:top-0 md:bottom-0 md:right-auto md:h-auto md:w-72 md:rounded-none
           md:translate-y-0
+          ${!isSheetDragging ? 'transition-transform duration-200' : ''}
           ${sidebarOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:-translate-x-full'}
         `}
+        style={isSheetDragging && sidebarOpen ? { transform: `translateY(${sheetDragOffset}px)` } : undefined}
       >
         {/* Mobile drag handle */}
-        <div className="md:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-pointer" onClick={() => setSidebarOpen(false)}>
-          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        <div
+          className="md:hidden flex justify-center pt-2.5 pb-4 flex-shrink-0 cursor-pointer touch-none select-none"
+          onTouchStart={onHandleTouchStart}
+          onTouchMove={onHandleTouchMove}
+          onTouchEnd={onHandleTouchEnd}
+          onClick={() => setSidebarOpen(false)}
+        >
+          <div className="w-10 h-1 bg-gray-300 rounded-full mt-1.5" />
         </div>
 
         {/* Desktop sidebar toggle */}
@@ -409,7 +455,7 @@ export default function MapPage() {
         </div>
 
         {/* Installation list */}
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-100 pb-safe">
           {installations.length === 0 && (
             <div className="text-center py-8 text-gray-400 text-sm">Žiadne inštalácie</div>
           )}
