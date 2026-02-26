@@ -5,32 +5,45 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
+// Module-level store — survives React re-renders and captures early events
+let _storedPrompt: BeforeInstallPromptEvent | null = null
+let _listeners: Array<(e: BeforeInstallPromptEvent) => void> = []
+
+export function storePwaPrompt(e: Event) {
+  _storedPrompt = e as BeforeInstallPromptEvent
+  _listeners.forEach((fn) => fn(_storedPrompt!))
+}
+
 export function usePwaInstall() {
-  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [isInstalled, setIsInstalled] = useState(false)
+  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(_storedPrompt)
+  const [isInstalled, setIsInstalled] = useState(
+    () => window.matchMedia('(display-mode: standalone)').matches
+  )
 
   useEffect(() => {
-    // Already running as installed PWA
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    if (isInstalled) return
+
+    // If already stored before this component mounted, pick it up
+    if (_storedPrompt && !prompt) {
+      setPrompt(_storedPrompt)
+    }
+
+    // Also subscribe to future events (e.g. on re-mount)
+    const handler = (e: BeforeInstallPromptEvent) => setPrompt(e)
+    _listeners.push(handler)
+
+    const installedHandler = () => {
       setIsInstalled(true)
-      return
+      setPrompt(null)
+      _storedPrompt = null
     }
-
-    const handler = (e: Event) => {
-      e.preventDefault()
-      setPrompt(e as BeforeInstallPromptEvent)
-    }
-
-    const installedHandler = () => setIsInstalled(true)
-
-    window.addEventListener('beforeinstallprompt', handler)
     window.addEventListener('appinstalled', installedHandler)
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handler)
+      _listeners = _listeners.filter((fn) => fn !== handler)
       window.removeEventListener('appinstalled', installedHandler)
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const install = async () => {
     if (!prompt) return false
@@ -39,6 +52,7 @@ export function usePwaInstall() {
     if (outcome === 'accepted') {
       setPrompt(null)
       setIsInstalled(true)
+      _storedPrompt = null
     }
     return outcome === 'accepted'
   }

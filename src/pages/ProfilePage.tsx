@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../ctx/AuthContext'
-import { Check, Clock, Bell, Bot, Plus, Trash2, ChevronDown } from 'lucide-react'
+import { usePwaInstall } from '../lib/usePwaInstall'
+import { Check, Clock, Bell, Bot, Plus, Trash2, ChevronDown, Download, CheckCircle2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { sk } from 'date-fns/locale'
 
@@ -11,6 +12,7 @@ type InstallationFilter = 'all' | 'mine' | 'reminders'
 
 export default function ProfilePage() {
   const { user } = useAuth()
+  const { canInstall, isInstalled, install } = usePwaInstall()
   const [filter, setFilter] = useState<InstallationFilter>('mine')
   const [text, setSearch] = useState('')
 
@@ -45,6 +47,31 @@ export default function ProfilePage() {
             <div className="text-sm text-gray-500">{user?.email}</div>
           </div>
         </div>
+
+        {/* Install app card */}
+        {isInstalled ? (
+          <div className="card flex items-center gap-3 text-green-700 bg-green-50 border-green-200">
+            <CheckCircle2 size={18} className="flex-shrink-0" />
+            <div>
+              <div className="text-sm font-semibold">Aplikácia je nainštalovaná</div>
+              <div className="text-xs text-green-600">Môžeš ju otvoriť priamo z plochy</div>
+            </div>
+          </div>
+        ) : canInstall ? (
+          <button
+            onClick={install}
+            className="card w-full flex items-center gap-3 hover:border-brand-300 hover:bg-brand-50 transition-colors text-left"
+          >
+            <div className="w-10 h-10 rounded-xl bg-brand-700 text-white flex items-center justify-center flex-shrink-0">
+              <Download size={18} />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-gray-900">Nainštalovať aplikáciu</div>
+              <div className="text-xs text-gray-500">Pridať Prevmatec na plochu zariadenia</div>
+            </div>
+            <span className="text-xs font-medium text-brand-700 bg-brand-50 border border-brand-200 px-2 py-1 rounded-lg flex-shrink-0">Inštalovať</span>
+          </button>
+        ) : null}
 
         {/* Upcoming reminders section */}
         <UpcomingReminders />

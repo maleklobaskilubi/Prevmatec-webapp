@@ -10,6 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: false, // defined in public/manifest.webmanifest
+      devOptions: {
+        enabled: true, // register SW in dev mode so beforeinstallprompt fires
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [],
