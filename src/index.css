@@ -9,6 +9,10 @@
   body {
     @apply bg-gray-50 text-gray-900;
   }
+  /* Prevent iOS Safari auto-zoom on focus (triggered when font-size < 16px) */
+  input, textarea, select {
+    font-size: max(16px, 1em);
+  }
 }
 
 @layer components {
